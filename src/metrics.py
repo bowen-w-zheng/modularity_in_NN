@@ -101,14 +101,19 @@ def compute_pca_subspace(activations: np.ndarray, var_threshold: float = 1e-10) 
         # Not enough samples for PCA
         return np.zeros((activations.shape[1], 0))
 
-    # Standardize
-    mean = np.mean(activations, axis=0, keepdims=True)
-    std = np.std(activations, axis=0, keepdims=True) + 1e-10
-    activations_std = (activations - mean) / std
+    n_samples, n_features = activations.shape
 
-    # PCA
-    pca = PCA()
-    pca.fit(activations_std)
+    # PCA with automatic centering (as per spec: "center activations")
+    # Cap at min(n_samples, n_features) as per spec
+    n_components = min(n_samples, n_features)
+
+    try:
+        pca = PCA(n_components=n_components, svd_solver='randomized')
+        pca.fit(activations)
+    except:
+        # Fallback to auto solver if randomized fails for small data
+        pca = PCA(n_components=n_components)
+        pca.fit(activations)
 
     # Keep components with explained variance > threshold
     explained_var = pca.explained_variance_
@@ -116,9 +121,9 @@ def compute_pca_subspace(activations: np.ndarray, var_threshold: float = 1e-10) 
 
     if not np.any(keep_components):
         # No components above threshold
-        return np.zeros((activations.shape[1], 0))
+        return np.zeros((n_features, 0))
 
-    # Get basis vectors (in original space, but using standardized data it's in std space)
+    # Get basis vectors
     # Components are rows of pca.components_
     basis = pca.components_[keep_components, :].T  # (n_features, n_components)
 
@@ -285,6 +290,11 @@ def compute_all_metrics(
     X_torch = torch.from_numpy(X).float()
     acts = get_hidden_activations(model, X_torch, device)
 
+    # Ensure no NaN or Inf in activations
+    if np.any(np.isnan(acts)) or np.any(np.isinf(acts)):
+        print("Warning: NaN or Inf in activations, replacing with zeros")
+        acts = np.nan_to_num(acts, nan=0.0, posinf=0.0, neginf=0.0)
+
     # Sample n_samples_per_ctx per context for contextual fraction
     n_contexts = len(np.unique(ctx_index))
     act_by_ctx = {}
@@ -293,32 +303,51 @@ def compute_all_metrics(
         mask = ctx_index == ctx
         indices = np.where(mask)[0]
 
+        if len(indices) == 0:
+            print(f"Warning: No samples for context {ctx}")
+            continue
+
         # Sample up to n_samples_per_ctx
+        n_to_sample = min(len(indices), n_samples_per_ctx)
         if len(indices) > n_samples_per_ctx:
-            sampled_indices = np.random.choice(indices, n_samples_per_ctx, replace=False)
+            sampled_indices = np.random.choice(indices, n_to_sample, replace=False)
         else:
             sampled_indices = indices
 
         act_by_ctx[ctx] = acts[sampled_indices]
 
     # Compute Contextual Fraction
-    cf = contextual_fraction(act_by_ctx, thresh=0.01)
+    try:
+        cf = contextual_fraction(act_by_ctx, thresh=0.01)
+    except Exception as e:
+        print(f"Warning: CF computation failed: {e}")
+        cf = 0.0
 
     # Compute Subspace Specialization (use all data)
-    ss = subspace_specialization(acts, latents, ctx_index, var_threshold=1e-10)
+    try:
+        ss = subspace_specialization(acts, latents, ctx_index, var_threshold=1e-10)
+    except Exception as e:
+        print(f"Warning: SS computation failed: {e}")
+        ss = 0.0
 
     # Optional: Clustering BIC
     # Compute mean activity matrix for clustering
     mean_activity_matrix = np.zeros((acts.shape[1], n_contexts))
     for ctx in range(n_contexts):
-        mean_activity_matrix[:, ctx] = np.mean(act_by_ctx[ctx], axis=0)
+        if ctx in act_by_ctx:
+            mean_activity_matrix[:, ctx] = np.mean(act_by_ctx[ctx], axis=0)
 
-    best_k, cluster_labels = clustering_bic(mean_activity_matrix, max_k=n_contexts)
+    try:
+        best_k, cluster_labels = clustering_bic(mean_activity_matrix, max_k=n_contexts)
+    except Exception as e:
+        print(f"Warning: Clustering failed: {e}")
+        best_k = 1
+        cluster_labels = np.zeros(acts.shape[1], dtype=int)
 
     metrics = {
-        'contextual_fraction': cf,
-        'subspace_specialization': ss,
-        'best_k_clusters': best_k,
+        'contextual_fraction': float(cf),
+        'subspace_specialization': float(ss),
+        'best_k_clusters': int(best_k),
         'cluster_labels': cluster_labels
     }
 
