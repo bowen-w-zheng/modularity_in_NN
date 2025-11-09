@@ -3,7 +3,6 @@
 This repository reproduces the key findings from:
 
 **Johnston et al., "Modular representations emerge in neural networks trained to perform context-dependent tasks"**
-Paper: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC10499898/
 
 ## Overview
 
