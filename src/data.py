@@ -1,4 +1,4 @@
-"""Data generation: latent variables, input models, and task sampling.
+"""Data generation: latent variables and input models.
 
 Implements the input model from Johnston et al., interpolating between
 disentangled and unstructured representations.
@@ -7,6 +7,7 @@ import numpy as np
 from typing import Dict, Tuple
 from itertools import combinations_with_replacement
 from src.utils import normalize_rows
+from src.tasks import sample_tasks, build_targets
 
 
 def sample_latents(n_per_ctx: int, D: int, C: int, R: int, rng: np.random.Generator) -> Dict:
@@ -191,82 +192,8 @@ def build_input_representation(
     return X
 
 
-def sample_tasks(T: int, D: int, C: int, rng: np.random.Generator) -> Dict:
-    """
-    Sample T linear classification tasks, each context-dependent.
-
-    For each task t and context c, generate a random linear separator:
-        y_{t,c} = 1{w_{t,c}^T z_dec > tau_{t,c}}
-
-    Args:
-        T: Number of tasks
-        D: Number of decision variables
-        C: Number of context variables
-        rng: Numpy random generator
-
-    Returns:
-        Dictionary with:
-            - W: (T, n_contexts, D) weight vectors
-            - tau: (T, n_contexts) thresholds
-    """
-    n_contexts = 2 ** C
-
-    # Sample random weights from {-1, 0, 1}^D (not all zero)
-    W = rng.integers(-1, 2, size=(T, n_contexts, D))
-
-    # Ensure not all zero (re-sample if needed)
-    for t in range(T):
-        for c in range(n_contexts):
-            while np.all(W[t, c] == 0):
-                W[t, c] = rng.integers(-1, 2, size=D)
-
-    # Sample thresholds to avoid severe class imbalance
-    # For binary variables in {0,1}, w^T z is in range [sum of negative weights, sum of positive weights]
-    tau = np.zeros((T, n_contexts))
-    for t in range(T):
-        for c in range(n_contexts):
-            w = W[t, c]
-            min_val = np.sum(np.minimum(w, 0))
-            max_val = np.sum(np.maximum(w, 0))
-            # Choose threshold in the middle range
-            tau[t, c] = rng.uniform(min_val + 0.2 * (max_val - min_val),
-                                   min_val + 0.8 * (max_val - min_val))
-
-    return {
-        'W': W,
-        'tau': tau
-    }
-
-
-def build_targets(latents: Dict, tasks: Dict) -> np.ndarray:
-    """
-    Build target labels for all samples and tasks.
-
-    Args:
-        latents: Dictionary from sample_latents
-        tasks: Dictionary from sample_tasks
-
-    Returns:
-        Y: (N, T) binary targets
-    """
-    z_dec = latents['z_dec']
-    ctx_index = latents['ctx_index']
-    N = latents['N']
-
-    W = tasks['W']
-    tau = tasks['tau']
-    T = W.shape[0]
-
-    Y = np.zeros((N, T), dtype=np.float32)
-
-    for i in range(N):
-        ctx = ctx_index[i]
-        z = z_dec[i]
-        for t in range(T):
-            score = np.dot(W[t, ctx], z)
-            Y[i, t] = 1.0 if score > tau[t, ctx] else 0.0
-
-    return Y
+# Task sampling and target building now in src/tasks.py
+# Imported at top: from src.tasks import sample_tasks, build_targets
 
 
 def generate_dataset(
@@ -279,7 +206,8 @@ def generate_dataset(
     M_un: int,
     q: int,
     s: float,
-    seed: int
+    seed: int,
+    class_balance: str = 'median'
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
     """
     Generate a complete dataset with inputs and targets.
@@ -292,9 +220,10 @@ def generate_dataset(
         q: Interaction order
         s: Structure parameter
         seed: Random seed
+        class_balance: 'median' or 'auto' for task threshold selection
 
     Returns:
-        X: (N, M_dis + M_un) inputs with context one-hot appended
+        X: (N, M_dis + M_un + n_contexts) inputs with context one-hot appended
         Y: (N, T) targets
         ctx_index: (N,) context indices
         metadata: Dictionary with latents and tasks
@@ -314,7 +243,7 @@ def generate_dataset(
     X = np.concatenate([X_features, ctx_onehot], axis=1).astype(np.float32)
 
     # Sample tasks and build targets
-    tasks = sample_tasks(T, D, C, rng)
+    tasks = sample_tasks(T, D, C, class_balance, rng)
     Y = build_targets(latents, tasks)
 
     metadata = {
