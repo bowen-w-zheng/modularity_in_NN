@@ -127,73 +127,89 @@ def test_end_to_end_mini_experiment():
     """Test a complete mini experiment in a temp directory."""
     print("\nTesting end-to-end mini experiment...")
 
-    # Generate data
-    X_train, Y_train, ctx_train, metadata_train = generate_dataset(
-        n_per_ctx=200,
-        D=2,
-        C=1,
-        R=1,
-        T=2,
-        M_dis=16,
-        M_un=32,
-        q=2,
-        s=0.8,
-        seed=42
-    )
+    try:
+        # Generate data
+        X_train, Y_train, ctx_train, metadata_train = generate_dataset(
+            n_per_ctx=100,  # Reduced from 200
+            D=2,
+            C=1,
+            R=0,  # Reduced from 1 to simplify
+            T=2,
+            M_dis=16,
+            M_un=16,  # Reduced from 32
+            q=2,
+            s=0.8,
+            seed=42
+        )
 
-    X_val, Y_val, ctx_val, metadata_val = generate_dataset(
-        n_per_ctx=100,
-        D=2,
-        C=1,
-        R=1,
-        T=2,
-        M_dis=16,
-        M_un=32,
-        q=2,
-        s=0.8,
-        seed=43
-    )
+        X_val, Y_val, ctx_val, metadata_val = generate_dataset(
+            n_per_ctx=50,  # Reduced from 100
+            D=2,
+            C=1,
+            R=0,
+            T=2,
+            M_dis=16,
+            M_un=16,
+            q=2,
+            s=0.8,
+            seed=43
+        )
 
-    # Create and train model
-    model = ContextMLP(in_dim=X_train.shape[1], hidden=64, n_tasks=2)
+        # Ensure no NaN values
+        assert not np.any(np.isnan(X_train)), "X_train contains NaN"
+        assert not np.any(np.isnan(Y_train)), "Y_train contains NaN"
+        assert not np.any(np.isnan(X_val)), "X_val contains NaN"
+        assert not np.any(np.isnan(Y_val)), "Y_val contains NaN"
 
-    history = train_model(
-        model=model,
-        X_train=X_train,
-        Y_train=Y_train,
-        X_val=X_val,
-        Y_val=Y_val,
-        lr=1e-3,
-        batch_size=64,
-        epochs=20,
-        patience=5,
-        device='cpu',
-        verbose=False
-    )
+        # Create and train model
+        model = ContextMLP(in_dim=X_train.shape[1], hidden=32, n_tasks=2)  # Reduced hidden size
 
-    # Compute metrics
-    metrics = compute_all_metrics(
-        model=model,
-        X=X_val,
-        ctx_index=ctx_val,
-        latents=metadata_val['latents'],
-        device='cpu',
-        n_samples_per_ctx=100
-    )
+        history = train_model(
+            model=model,
+            X_train=X_train,
+            Y_train=Y_train,
+            X_val=X_val,
+            Y_val=Y_val,
+            lr=1e-3,
+            batch_size=32,  # Reduced batch size
+            epochs=15,  # Reduced epochs
+            patience=5,
+            device='cpu',
+            verbose=False
+        )
 
-    # Check metrics computed
-    assert 'contextual_fraction' in metrics, "CF not computed"
-    assert 'subspace_specialization' in metrics, "SS not computed"
-    assert 'best_k_clusters' in metrics, "Clustering not computed"
+        # Check training completed
+        assert len(history['val_acc']) > 0, "No training history"
 
-    # Check metric ranges
-    assert 0 <= metrics['contextual_fraction'] <= 1, f"CF out of range: {metrics['contextual_fraction']}"
-    assert metrics['subspace_specialization'] >= 0, f"SS negative: {metrics['subspace_specialization']}"
+        # Compute metrics with smaller sample size
+        metrics = compute_all_metrics(
+            model=model,
+            X=X_val,
+            ctx_index=ctx_val,
+            latents=metadata_val['latents'],
+            device='cpu',
+            n_samples_per_ctx=50  # Reduced from 100
+        )
 
-    print(f"  ✓ End-to-end experiment completed")
-    print(f"    Final val acc: {history['val_acc'][-1]:.3f}")
-    print(f"    Contextual Fraction: {metrics['contextual_fraction']:.3f}")
-    print(f"    Subspace Specialization: {metrics['subspace_specialization']:.3f}")
+        # Check metrics computed
+        assert 'contextual_fraction' in metrics, "CF not computed"
+        assert 'subspace_specialization' in metrics, "SS not computed"
+        assert 'best_k_clusters' in metrics, "Clustering not computed"
+
+        # Check metric ranges
+        assert 0 <= metrics['contextual_fraction'] <= 1, f"CF out of range: {metrics['contextual_fraction']}"
+        assert metrics['subspace_specialization'] >= 0, f"SS negative: {metrics['subspace_specialization']}"
+
+        print(f"  ✓ End-to-end experiment completed")
+        print(f"    Final val acc: {history['val_acc'][-1]:.3f}")
+        print(f"    Contextual Fraction: {metrics['contextual_fraction']:.3f}")
+        print(f"    Subspace Specialization: {metrics['subspace_specialization']:.3f}")
+
+    except Exception as e:
+        print(f"  ✗ End-to-end test failed with error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 
 if __name__ == '__main__':

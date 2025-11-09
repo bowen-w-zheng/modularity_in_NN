@@ -96,14 +96,33 @@ def build_targets(latents: Dict, tasks: Dict) -> np.ndarray:
 
     # If using 'median' or 'auto', adjust thresholds based on actual data
     if class_balance == 'median':
-        # Compute median score per task per context
+        # Compute threshold to achieve ~50% positive class
         for t in range(T):
             for c in range(n_contexts):
                 ctx_mask = (ctx_index == c)
                 if np.any(ctx_mask):
                     z_dec_ctx = z_dec[ctx_mask]
                     scores_ctx = z_dec_ctx @ W[t, c]
-                    tau[t, c] = np.median(scores_ctx)
+
+                    # Use median as initial threshold
+                    median_score = np.median(scores_ctx)
+
+                    # Count how many would be positive with this threshold
+                    n_pos_strict = np.sum(scores_ctx > median_score)
+                    n_pos_inclusive = np.sum(scores_ctx >= median_score)
+                    n_total = len(scores_ctx)
+
+                    # Choose threshold to get closer to 50% balance
+                    # If strict > gives good balance, use it; otherwise adjust
+                    ratio_strict = n_pos_strict / n_total
+                    ratio_inclusive = n_pos_inclusive / n_total
+
+                    # Use the option that's closer to 0.5
+                    if abs(ratio_strict - 0.5) < abs(ratio_inclusive - 0.5):
+                        tau[t, c] = median_score
+                    else:
+                        # Use a slightly smaller threshold to include median values
+                        tau[t, c] = median_score - 1e-6
 
     elif class_balance == 'auto':
         # Grid search to keep class ratio in [0.35, 0.65]
@@ -116,13 +135,14 @@ def build_targets(latents: Dict, tasks: Dict) -> np.ndarray:
 
                     # Try different percentiles to find good balance
                     best_thresh = np.median(scores_ctx)
-                    best_ratio = 0.5
+                    best_ratio = np.mean(scores_ctx > best_thresh)
 
-                    for percentile in np.linspace(30, 70, 9):
+                    # Search over finer grid of percentiles
+                    for percentile in np.linspace(25, 75, 21):
                         thresh_candidate = np.percentile(scores_ctx, percentile)
                         pos_ratio = np.mean(scores_ctx > thresh_candidate)
 
-                        # Check if ratio is in target range [0.35, 0.65]
+                        # Prefer ratios closer to 0.5 within [0.35, 0.65]
                         if 0.35 <= pos_ratio <= 0.65:
                             if abs(pos_ratio - 0.5) < abs(best_ratio - 0.5):
                                 best_thresh = thresh_candidate

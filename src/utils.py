@@ -129,20 +129,21 @@ def ensure_dir(path: str):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def normalize_rows(X: np.ndarray) -> np.ndarray:
+def normalize_rows(X: np.ndarray, eps: float = 1e-8) -> np.ndarray:
     """
     L2-normalize each row of X.
 
     Args:
         X: (N, D) array
+        eps: Small epsilon to avoid division by zero
 
     Returns:
         X_norm: (N, D) array with unit-norm rows
     """
     norms = np.linalg.norm(X, axis=1, keepdims=True)
-    # Avoid division by zero
-    norms = np.where(norms == 0, 1, norms)
-    return X / norms
+    # Clip norms to avoid division by zero or very small numbers
+    norms = np.maximum(norms, eps)
+    return (X / norms).astype(np.float32)
 
 
 def to_numpy(tensor):
