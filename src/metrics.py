@@ -103,17 +103,18 @@ def compute_pca_subspace(activations: np.ndarray, var_threshold: float = 1e-10) 
 
     n_samples, n_features = activations.shape
 
-    # PCA with automatic centering (as per spec: "center activations")
-    # Cap at min(n_samples, n_features) as per spec
-    n_components = min(n_samples, n_features)
+    # PCA with automatic centering
+    # Use 'full' solver for deterministic results and better accuracy
+    n_components = min(n_samples - 1, n_features)  # Max components for full SVD
 
-    try:
-        pca = PCA(n_components=n_components, svd_solver='randomized')
-        pca.fit(activations)
-    except:
-        # Fallback to auto solver if randomized fails for small data
-        pca = PCA(n_components=n_components)
-        pca.fit(activations)
+    # Use full SVD for small/medium datasets (more accurate than randomized)
+    if n_samples <= 1000:
+        pca = PCA(n_components=n_components, svd_solver='full', random_state=42)
+    else:
+        # Use randomized for large datasets
+        pca = PCA(n_components=n_components, svd_solver='randomized', random_state=42)
+
+    pca.fit(activations)
 
     # Keep components with explained variance > threshold
     explained_var = pca.explained_variance_
