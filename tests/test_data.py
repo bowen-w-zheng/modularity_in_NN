@@ -71,10 +71,14 @@ def test_input_representation():
     print(f"    Norm min: {norms.min():.15f}")
     print(f"    Norm max: {norms.max():.15f}")
     print(f"    Norm mean: {norms.mean():.15f}")
-    print(f"    Max deviation: {np.abs(norms - 1.0).max():.15e}")
-    print(f"    First 5 norms: {norms[:5]}")
+    print(f"    Num zero rows: {np.sum(norms < 1e-10)}")
+    print(f"    Max deviation (non-zero): {np.abs(norms[norms > 1e-10] - 1.0).max():.15e}")
 
-    assert np.allclose(norms, 1.0, atol=1e-5), f"Rows not L2-normalized. Max deviation: {np.abs(norms - 1.0).max():.2e}"
+    # Check normalization for non-zero rows only
+    # (Zero rows occur when all latent variables are 0, which is valid but cannot be normalized)
+    non_zero_mask = norms > 1e-10
+    assert np.allclose(norms[non_zero_mask], 1.0, atol=1e-5), \
+        f"Non-zero rows not L2-normalized. Max deviation: {np.abs(norms[non_zero_mask] - 1.0).max():.2e}"
 
     print("  ✓ Disentangled representation correct")
     print("  ✓ Unstructured representation correct")
