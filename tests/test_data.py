@@ -64,7 +64,17 @@ def test_input_representation():
 
     # Check L2 normalization
     norms = np.linalg.norm(X, axis=1)
-    assert np.allclose(norms, 1.0, atol=1e-5), "Rows not L2-normalized"
+
+    # Debug output
+    print(f"\n    Debug normalization:")
+    print(f"    X dtype: {X.dtype}")
+    print(f"    Norm min: {norms.min():.15f}")
+    print(f"    Norm max: {norms.max():.15f}")
+    print(f"    Norm mean: {norms.mean():.15f}")
+    print(f"    Max deviation: {np.abs(norms - 1.0).max():.15e}")
+    print(f"    First 5 norms: {norms[:5]}")
+
+    assert np.allclose(norms, 1.0, atol=1e-5), f"Rows not L2-normalized. Max deviation: {np.abs(norms - 1.0).max():.2e}"
 
     print("  ✓ Disentangled representation correct")
     print("  ✓ Unstructured representation correct")
