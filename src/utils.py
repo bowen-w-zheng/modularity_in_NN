@@ -140,10 +140,23 @@ def normalize_rows(X: np.ndarray, eps: float = 1e-10) -> np.ndarray:
     Returns:
         X_norm: (N, D) array with unit-norm rows
     """
-    norms = np.linalg.norm(X, axis=1, keepdims=True)
-    # Avoid division by zero: clip norms to minimum of eps
+    # Store original dtype
+    original_dtype = X.dtype
+
+    # Convert to float64 for precision in normalization
+    X_float64 = X.astype(np.float64)
+
+    # Compute L2 norms
+    norms = np.linalg.norm(X_float64, axis=1, keepdims=True)
+
+    # Avoid division by zero
     norms_safe = np.maximum(norms, eps)
-    return (X / norms_safe).astype(X.dtype)
+
+    # Normalize
+    X_normalized = X_float64 / norms_safe
+
+    # Convert back to original dtype
+    return X_normalized.astype(original_dtype)
 
 
 def to_numpy(tensor):
